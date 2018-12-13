@@ -3,9 +3,11 @@ from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QPu
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QColor, QPalette, QBrush, QPainter, QPen, QIcon, QKeySequence
 from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, QObject, pyqtSlot
 import sys
-from utils import ImageContainer, xml_root, instance_to_xml
+from utils import ImageContainer, xml_root, instance_to_xml, prediction, load_image
 from lxml import etree
 from enum import Enum
+from keras.models import load_model
+import tensorflow as tf
 
 
 class Mode(Enum):
@@ -123,6 +125,24 @@ class Viewer(QLabel):
         self.resizeMode = ResizeMode.OTHER
         self.label = Label.SHIP
 
+    def autoLabeling(self, boundingBoxes):
+        for box in self.__boxes:
+            box.hide()
+            box.deleteLater()
+
+        self.__boxes.clear()
+        print(boundingBoxes)
+        for idx, bbox in enumerate(boundingBoxes):
+            x, y, w, h = bbox
+            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP)) # TODO - Multi classification
+            self.__boxes[idx].setGeometry(QRect(x, y, w, h))
+            self.__boxes[idx].geometry()
+            self.__boxes[idx].setPalette(self.__boundingBoxColor())
+            self.__boxes[idx].show()
+
+        self.changeBoxNum.emit(len(self.__boxes))
+
+
     @property
     def boxes(self):
         bndBox = []
@@ -218,7 +238,12 @@ class Viewer(QLabel):
             if self.__correctionMode == CorrectionMode.RESIZE:
                 selectedBox.canvasBoxRatio = (selectedBox.width() / self.width(), selectedBox.height() / self.height())
                 selectedBox.canvasPositionRatio = (selectedBox.pos().x() / self.width(), selectedBox.pos().y() / self.height())
+
+                if selectedBox.width() * selectedBox.height() < self.drawingThreshold:
+                    self.removeBoundingBox(self.selectedIdx)
+
                 self.resizeMode = ResizeMode.OTHER
+
             elif self.__correctionMode == CorrectionMode.MOVE:
                 selectedBox.canvasPositionRatio = (selectedBox.pos().x() / self.width(), selectedBox.pos().y() / self.height())
 
@@ -262,17 +287,6 @@ class Viewer(QLabel):
     def setLabel(self, newLabel):
         self.label = Label(newLabel)
 
-    def __boundingBoxColor(self, label=None):
-        if label is None:
-            label = self.label
-
-        color = QColor(self.colorTable[label])
-        palette = QPalette()
-        color.setAlpha(80)
-        palette.setBrush(QPalette.Highlight, QBrush(color))
-
-        return palette
-
     def removeBoundingBox(self, idx=None):
         if idx is None:
             idx = self.selectedIdx
@@ -283,6 +297,17 @@ class Viewer(QLabel):
             self.__boxes[idx].deleteLater()
             self.__boxes.pop(idx)
             self.changeBoxNum.emit(len(self.__boxes))
+
+    def __boundingBoxColor(self, label=None):
+        if label is None:
+            label = self.label
+
+        color = QColor(self.colorTable[label])
+        palette = QPalette()
+        color.setAlpha(80)
+        palette.setBrush(QPalette.Highlight, QBrush(color))
+
+        return palette
 
     def __getResizeDimension(self, box, mousePos, resizeMode):
         oldTopLeftX, oldTopLeftY = box.pos().x(), box.pos().y()
@@ -437,6 +462,7 @@ class Labeling(QMainWindow, MainUI):
         self.setupUi()
         self.loadBtn.triggered.connect(self.openFileDialogue)
         self.saveBtn.triggered.connect(self.saveFileDialogue)
+        self.autoLabelBtn.triggered.connect(self.autoLabel)
         self.viewer.changeBoxNum.connect(self.changeBoxNum)
 
         for label in Label:
@@ -449,6 +475,8 @@ class Labeling(QMainWindow, MainUI):
         self.labelComboBox.setCurrentIndex(0)
         self.show()
         self.loadImage = None
+        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        self.yolo.summary()
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -473,13 +501,13 @@ class Labeling(QMainWindow, MainUI):
         self.boundingBoxNum.setText('Box: {}'.format(num))
 
     def openFileDialogue(self):
-        fileName, fileType = QFileDialog.getOpenFileName(self, 'Open', '', 'Image files {}'.format(self.allowDataType))
+        filePath, fileType = QFileDialog.getOpenFileName(self, 'Open', '', 'Image files {}'.format(self.allowDataType))
 
-        if fileName != '':
-            rawImage = QImage(fileName)
+        if filePath != '':
+            rawImage = QImage(filePath)
             self.initialize()
             self.viewer.initialize()
-            self.loadImage = ImageContainer(rawImage, fileName.split('/')[-1])
+            self.loadImage = ImageContainer(rawImage, filePath)
             self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
 
     def saveFileDialogue(self):
@@ -491,6 +519,18 @@ class Labeling(QMainWindow, MainUI):
                 savePath += '.xml'
 
             self.__saveToXml(savePath)
+
+    def autoLabel(self):
+        if self.loadImage != None:
+            image = load_image(self.loadImage.filePath)
+            boundingBoxes = prediction(image, self.yolo)
+
+            for box in boundingBoxes:
+                oldH, oldW, _ = image.shape
+                newH, newW = self.viewer.height(), self.viewer.width()
+                box[:] = [box[0]*newW/oldW, box[1]*newH/oldH, box[2]*newW/oldW, box[3]*newH/oldH]
+
+            self.viewer.autoLabeling(boundingBoxes)
 
     def __saveToXml(self, filePath):
         bndBox = self.viewer.boxes

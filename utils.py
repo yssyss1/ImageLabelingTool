@@ -1,4 +1,3 @@
-from PyQt5.QtGui import QImage
 from lxml import etree, objectify
 
 import cv2
@@ -9,15 +8,19 @@ import xml.etree.ElementTree as ET
 
 
 class ImageContainer:
-    def __init__(self, image, fileName):
+    def __init__(self, image, filePath):
         self.image = image
-        self.__fileName = fileName
         self.__imageWidth = image.width()
         self.__imageHeight = image.height()
+        self.__filePath  = filePath
+
+    @property
+    def filePath(self):
+        return self.__filePath
 
     @property
     def fileName(self):
-        return self.__fileName
+        return self.__filePath.split('/')[-1]
 
     @property
     def imageWidth(self):
@@ -53,18 +56,184 @@ def instance_to_xml(annotation):
                 ),
             )
 
+################################################
+#                                              #
+#   BELOW LINE IS Yolo Postprocessing CODE     #
+#                                              #
+################################################
+
+
+class BoundBox:
+    def __init__(self, xmin, ymin, xmax, ymax, confidence=None, classes=None):
+        self.xmin = xmin
+        self.ymin = ymin
+        self.xmax = xmax
+        self.ymax = ymax
+
+        self.confidence = confidence
+        self.classes = classes
+
+        self.label = -1
+        self.score = -1
+
+    def get_label(self):
+        if self.label == -1:
+            self.label = np.argmax(self.classes)
+
+        return self.label
+
+    def get_score(self):
+        if self.score == -1:
+            self.score = self.classes[self.get_label()]
+
+        return self.score
+
+
+def prediction(image,
+               model,
+               obj_threshold=0.3,
+               nms_threshold=0.3,
+               image_width=416,
+               image_height=416,
+               grid_h=13,
+               grid_w=13,
+               box_num=5,
+               normalize=True,
+               anchors=None
+               ):
+
+    if anchors is None:
+        anchors = [0.78353, 1.57529, 1.02559, 0.65428, 1.97076, 1.00357, 3.76925, 2.32570, 0.35109, 0.39320]
+
+    input_image = cv2.resize(image, (image_height, image_width))
+    input_image = input_image / 255. if normalize else input_image
+    input_image = np.expand_dims(input_image, 0)
+
+    netout = model.predict(input_image)
+
+    boxes = decode_netout(netout[0],
+                          shape_dims=(grid_h, grid_w, box_num, 4 + 1 + 1),
+                          anchors=anchors,
+                          nb_class=1,
+                          obj_threshold=obj_threshold,
+                          nms_threshold=nms_threshold
+                          )
+
+    bouding_boxes = get_bounding_boxes(image, boxes, grid_h, grid_w)
+
+    return bouding_boxes
+
+
+def load_image(image_path):
+    image = cv2.imread(image_path)
+    image = np.array(image[..., ::-1])
+
+    return image
+
+
+def decode_netout(netout, shape_dims, anchors, nb_class, obj_threshold=0.3, nms_threshold=0.3):
+    netout = np.reshape(netout, shape_dims)
+    grid_h, grid_w, nb_box = netout.shape[:3]
+
+    boxes = []
+
+    netout[..., 4] = sigmoid(netout[..., 4])
+    netout[..., 5] = netout[..., 4] * sigmoid(netout[..., 5])
+    netout[..., 5] *= netout[..., 5] > obj_threshold
+
+    for row in range(grid_h):
+        for col in range(grid_w):
+            for b in range(nb_box):
+
+                classes = netout[row, col, b, 5:]
+
+                if np.sum(classes) > 0:
+                    x, y, w, h, confidence = netout[row, col, b, :5]
+
+                    x = (col + sigmoid(x))
+                    y = (row + sigmoid(y))
+                    w = anchors[2 * b + 0] * np.exp(w)
+                    h = anchors[2 * b + 1] * np.exp(h)
+
+                    box = BoundBox(x - w / 2, y - h / 2, x + w / 2, y + h / 2, confidence, classes)
+
+                    boxes.append(box)
+
+    for c in range(nb_class):
+        sorted_indices = list(reversed(np.argsort([box.classes[c] for box in boxes])))
+
+        for i in range(len(sorted_indices)):
+            index_i = sorted_indices[i]
+
+            if boxes[index_i].classes[c] == 0:
+                continue
+            else:
+                for j in range(i + 1, len(sorted_indices)):
+                    index_j = sorted_indices[j]
+
+                    if bbox_iou(boxes[index_i], boxes[index_j]) >= nms_threshold:
+                        boxes[index_j].classes[c] = 0
+
+    boxes = [box for box in boxes if box.get_score() > 0]
+
+    return boxes
+
+
+def get_bounding_boxes(image, boxes, grid_h, grid_w):
+    image_h, image_w, _ = image.shape
+    box_list = []
+
+    for box in boxes:
+        xmin = max(int(box.xmin * image_w / grid_w), 0)
+        ymin = max(int(box.ymin * image_h / grid_h), 0)
+        xmax = min(int(box.xmax * image_w / grid_w), image_w)
+        ymax = min(int(box.ymax * image_h / grid_h), image_h)
+
+        box_list.append([xmin, ymin, xmax-xmin, ymax-ymin])
+
+    return box_list
+
+
+def sigmoid(x):
+    x = np.array(x)
+    return 1. / (1. + np.exp(-x))
+
+
+def bbox_iou(box1: BoundBox, box2: BoundBox):
+    intersect_w = interval_overlap([box1.xmin, box1.xmax], [box2.xmin, box2.xmax])
+    intersect_h = interval_overlap([box1.ymin, box1.ymax], [box2.ymin, box2.ymax])
+
+    intersect = intersect_w * intersect_h
+
+    w1, h1 = box1.xmax - box1.xmin, box1.ymax - box1.ymin
+    w2, h2 = box2.xmax - box2.xmin, box2.ymax - box2.ymin
+
+    union = w1 * h1 + w2 * h2 - intersect
+
+    return float(intersect) / union
+
+
+def interval_overlap(interval_a, interval_b):
+    x1, x2 = interval_a
+    x3, x4 = interval_b
+
+    if x3 < x1:
+        if x4 < x1:
+            return 0
+        else:
+            return min(x2, x4) - x1
+    else:
+        if x2 < x3:
+            return 0
+        else:
+            return min(x2, x4) - x3
+
 
 #################################
 #                               #
 #   BELOW LINE IS TEST CODE     #
 #                               #
 #################################
-
-def load_image(image_path):
-    image = cv2.imread(image_path)
-    image = np.array(image[:, :, ::-1])
-
-    return image
 
 
 def dataset_check(image_dir, xml_dir, labels, name):
