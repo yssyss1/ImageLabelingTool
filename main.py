@@ -52,8 +52,8 @@ class Label(Enum):
 
 class BoundingBox(QRubberBand):
 
-    def __init__(self, QRubberBand_Shape, parent, label):
-        super().__init__(QRubberBand_Shape, parent)
+    def __init__(self, shape, parent, label):
+        super().__init__(shape, parent)
         self.pointCheckRange = 10
         self.canvasPositionRatio = (0, 0)
         self.canvasBoxRatio = (0, 0)
@@ -110,6 +110,8 @@ class Viewer(QLabel):
         self.resizeMode = ResizeMode.OTHER
         self.label = Label.SHIP
         self.colorTable = {Label.SHIP: Qt.blue, Label.BUOY: Qt.red, Label.OTHER: Qt.green}
+        self.__mouseLineVisible = True
+        self.__InitializeMouseLine()
 
     def initialize(self):
         for box in self.__boxes:
@@ -134,7 +136,7 @@ class Viewer(QLabel):
 
         for idx, bbox in enumerate(boundingBoxes):
             x, y, w, h = bbox
-            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP)) # TODO - Multi classification
+            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP)) # TODO - Multi classification Labeling
             self.__boxes[idx].setGeometry(QRect(x, y, w, h))
             self.__boxes[idx].geometry()
             self.__boxes[idx].setPalette(self.__boundingBoxColor())
@@ -147,6 +149,20 @@ class Viewer(QLabel):
 
         self.changeBoxNum.emit(len(self.__boxes))
 
+    @property
+    def mouseLineVisible(self):
+        return self.__mouseLineVisible
+
+    @mouseLineVisible.setter
+    def mouseLineVisible(self, flag):
+        self.__mouseLineVisible = flag
+
+        if self.__mouseLineVisible:
+            for mouseLine in self.__mouseLines:
+                mouseLine.show()
+        else:
+            for mouseLine in self.__mouseLines:
+                mouseLine.hide()
 
     @property
     def boxes(self):
@@ -176,7 +192,7 @@ class Viewer(QLabel):
         if QMouseEvent.button() == Qt.LeftButton:
             if self.__mode == Mode.LABELING:
                 self.origin = QMouseEvent.pos()
-                box = BoundingBox(QRubberBand.Rectangle, self, self.label)
+                box = BoundingBox(QRubberBand.Line, self, self.label)
                 box.setGeometry(QRect(self.origin, QSize()))
                 box.geometry()
                 box.setPalette(self.__boundingBoxColor())
@@ -203,6 +219,9 @@ class Viewer(QLabel):
         super().mousePressEvent(QMouseEvent)
 
     def mouseMoveEvent(self, QMouseEvent):
+
+        self.__setMouseLinePosition(QMouseEvent.pos())
+
         if self.__mode == Mode.CORRECTION and self.__correctionMode == CorrectionMode.OTHER:
             self.__findResizingBox(QMouseEvent)
 
@@ -266,6 +285,15 @@ class Viewer(QLabel):
 
         super().resizeEvent(QResizeEvent)
 
+    def leaveEvent(self, QEvent):
+        if self.mode == Mode.LABELING:
+            self.mouseLineVisible = False
+
+    def enterEvent(self, QEvent):
+        if self.mode == Mode.LABELING:
+            self.mouseLineVisible = True
+            self.__setMouseLinePosition(QEvent.pos())
+
     def contextMenuEvent(self, event):
         selectedIdx = self.__findCorrectionBox(event.pos())
 
@@ -302,6 +330,22 @@ class Viewer(QLabel):
             self.__boxes[idx].deleteLater()
             self.__boxes.pop(idx)
             self.changeBoxNum.emit(len(self.__boxes))
+
+    def __setMouseLinePosition(self, position):
+        self.__mouseLines[0].setGeometry(QRect(QPoint(position.x(), 0), QPoint(position.x(), position.y())))
+        self.__mouseLines[1].setGeometry(
+            QRect(QPoint(position.x(), position.y()), QPoint(position.x(), self.height())))
+        self.__mouseLines[2].setGeometry(QRect(QPoint(0, position.y()), QPoint(position.x(), position.y())))
+        self.__mouseLines[3].setGeometry(
+            QRect(QPoint(position.x(), position.y()), QPoint(self.width(), position.y())))
+
+    def __InitializeMouseLine(self):
+        self.__mouseLines = [QRubberBand(QRubberBand.Line, self) for _ in range(4)]
+
+        for mouseLine in self.__mouseLines:
+            mouseLine.setGeometry(QRect(QPoint(0, 0), QPoint(0, 0)))
+            mouseLine.setPalette(self.__boundingBoxColor(Label.OTHER))
+            mouseLine.show()
 
     def __boundingBoxColor(self, label=None):
         if label is None:
@@ -449,10 +493,11 @@ class MainUI(object):
         self.viewer.setFocusPolicy(Qt.StrongFocus)
 
         self.notification = QLabel(Mode.LABELING.name, self)
-        self.notification.setStyleSheet('QWidget { background-color: %s }' % QColor(0, 255, 0).name())
+        self.notification.setStyleSheet('background-color: rgb(0, 255, 0)')
         self.boundingBoxNum = QLabel('Box: 0')
 
         self.bottomBar = self.statusBar()
+        self.bottomBar.setStyleSheet("background-color: rgb(200, 200, 200)")
         self.bottomBar.addWidget(self.notification)
         self.bottomBar.addWidget(self.boundingBoxNum)
 
@@ -465,6 +510,8 @@ class Labeling(QMainWindow, MainUI):
     def __init__(self):
         super().__init__()
         self.setupUi()
+        self.setWindowIcon(QIcon('./icon/favicon.png'))
+        self.setMinimumSize(self.windowWidth, self.windowHeight)
         self.loadBtn.triggered.connect(self.openFileDialogue)
         self.saveBtn.triggered.connect(self.saveFileDialogue)
         self.autoLabelBtn.triggered.connect(self.autoLabel)
@@ -479,9 +526,9 @@ class Labeling(QMainWindow, MainUI):
         self.labelComboBox.currentTextChanged.connect(self.viewer.setLabel)
         self.labelComboBox.setCurrentIndex(0)
         self.show()
+        self.setFocus()
         self.loadImage = None
-        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
-        self.yolo.summary()
+        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -491,15 +538,29 @@ class Labeling(QMainWindow, MainUI):
         if not self.viewer.makeBoundingBox and self.viewer.correctionMode == CorrectionMode.OTHER:
             if QKeyEvent.key() == Qt.Key_I:
                 self.viewer.mode = Mode.CORRECTION
+                self.viewer.mouseLineVisible = False
             elif QKeyEvent.key() == Qt.Key_Escape:
                 self.viewer.mode = Mode.LABELING
+                self.viewer.mouseLineVisible = True
             self.__changeModeLabel(self.viewer.mode)
 
         if QKeyEvent.key() == Qt.Key_Delete:
             if self.viewer.mode == Mode.CORRECTION:
                 self.viewer.removeBoundingBox()
+        elif QKeyEvent.key() == Qt.Key_F1:
+            self.viewer.mouseLineVisible = not self.viewer.mouseLineVisible
+        elif QKeyEvent.key() == Qt.Key_Control:
+            self.viewer.mode = Mode.CORRECTION
+            self.__changeModeLabel(self.viewer.mode)
+            self.viewer.mouseLineVisible = False
 
         super().keyPressEvent(QKeyEvent)
+
+    def keyReleaseEvent(self, QKeyEvent):
+        if QKeyEvent.key() == Qt.Key_Control:
+            self.viewer.mode = Mode.LABELING
+            self.__changeModeLabel(self.viewer.mode)
+            self.viewer.mouseLineVisible = True
 
     @pyqtSlot(int)
     def changeBoxNum(self, num):
@@ -549,7 +610,7 @@ class Labeling(QMainWindow, MainUI):
             scaleRatio = (width/self.viewer.width(), height/self.viewer.height())
             instances.append({'bbox': [self.loadImage.imageWidth * positionRatio[0], self.loadImage.imageHeight * positionRatio[1],
                                        self.loadImage.imageWidth * scaleRatio[0], self.loadImage.imageHeight * scaleRatio[1]],
-                              'category_id':label.value})
+                              'category_id': label.value})
 
         for instance in instances:
             annotation.append(instance_to_xml(instance))
