@@ -13,7 +13,6 @@ import tensorflow as tf
 class Mode(Enum):
     LABELING = 0
     CORRECTION = 1
-    OTHER = -1
 
 
 class CorrectionMode(Enum):
@@ -112,6 +111,7 @@ class Viewer(QLabel):
         self.colorTable = {Label.SHIP: Qt.blue, Label.BUOY: Qt.red, Label.OTHER: Qt.green}
         self.__mouseLineVisible = True
         self.__InitializeMouseLine()
+        self.__ctrlFlag = False
 
     def initialize(self):
         for box in self.__boxes:
@@ -148,6 +148,14 @@ class Viewer(QLabel):
                 (self.__boxes[idx].width() / self.width(), self.__boxes[idx].height() / self.height())
 
         self.changeBoxNum.emit(len(self.__boxes))
+
+    @property
+    def ctrlFlag(self):
+        return self.__ctrlFlag
+
+    @ctrlFlag.setter
+    def ctrlFlag(self, newFlag):
+        self.__ctrlFlag = newFlag
 
     @property
     def mouseLineVisible(self):
@@ -215,11 +223,9 @@ class Viewer(QLabel):
                         self.__changeCursor(Qt.ClosedHandCursor)
                         self.translateOffset = QMouseEvent.pos() - self.__boxes[selectedIdx].pos()
                 self.selectedIdx = selectedIdx
-
         super().mousePressEvent(QMouseEvent)
 
     def mouseMoveEvent(self, QMouseEvent):
-
         self.__setMouseLinePosition(QMouseEvent.pos())
 
         if self.__mode == Mode.CORRECTION and self.__correctionMode == CorrectionMode.OTHER:
@@ -273,6 +279,11 @@ class Viewer(QLabel):
 
             #TODO - Remove Invalid Bounding boxes with Area Threshold or Some Rules
             self.__correctionMode = CorrectionMode.OTHER
+
+        if self.__ctrlFlag:
+            self.__ctrlFlag = False
+            self.mode = Mode.LABELING
+            self.mouseLineVisible = True
 
         super().mouseReleaseEvent(QMouseEvent)
 
@@ -528,7 +539,7 @@ class Labeling(QMainWindow, MainUI):
         self.show()
         self.setFocus()
         self.loadImage = None
-        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -542,25 +553,27 @@ class Labeling(QMainWindow, MainUI):
             elif QKeyEvent.key() == Qt.Key_Escape:
                 self.viewer.mode = Mode.LABELING
                 self.viewer.mouseLineVisible = True
+            elif QKeyEvent.key() == Qt.Key_Shift:
+                self.viewer.mode = Mode.CORRECTION
+                self.viewer.mouseLineVisible = False
             self.__changeModeLabel(self.viewer.mode)
 
         if QKeyEvent.key() == Qt.Key_Delete:
             if self.viewer.mode == Mode.CORRECTION:
                 self.viewer.removeBoundingBox()
-        elif QKeyEvent.key() == Qt.Key_F1:
-            self.viewer.mouseLineVisible = not self.viewer.mouseLineVisible
-        elif QKeyEvent.key() == Qt.Key_Control:
-            self.viewer.mode = Mode.CORRECTION
-            self.__changeModeLabel(self.viewer.mode)
-            self.viewer.mouseLineVisible = False
 
         super().keyPressEvent(QKeyEvent)
 
     def keyReleaseEvent(self, QKeyEvent):
-        if QKeyEvent.key() == Qt.Key_Control:
-            self.viewer.mode = Mode.LABELING
-            self.__changeModeLabel(self.viewer.mode)
-            self.viewer.mouseLineVisible = True
+        if not self.viewer.makeBoundingBox and self.viewer.correctionMode == CorrectionMode.OTHER:
+            if QKeyEvent.key() == Qt.Key_Shift:
+                self.viewer.mode = Mode.LABELING
+                self.viewer.mouseLineVisible = True
+                self.__changeModeLabel(self.viewer.mode)
+        elif self.viewer.correctionMode != CorrectionMode.OTHER:
+            if QKeyEvent.key() == Qt.Key_Shift:
+                self.__changeModeLabel(Mode.LABELING)
+                self.viewer.ctrlFlag = True
 
     @pyqtSlot(int)
     def changeBoxNum(self, num):
