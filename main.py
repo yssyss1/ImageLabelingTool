@@ -131,7 +131,7 @@ class Viewer(QLabel):
             box.deleteLater()
 
         self.__boxes.clear()
-        print(boundingBoxes)
+
         for idx, bbox in enumerate(boundingBoxes):
             x, y, w, h = bbox
             self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP)) # TODO - Multi classification
@@ -139,6 +139,11 @@ class Viewer(QLabel):
             self.__boxes[idx].geometry()
             self.__boxes[idx].setPalette(self.__boundingBoxColor())
             self.__boxes[idx].show()
+
+            self.__boxes[idx].canvasPositionRatio = \
+                (self.__boxes[idx].pos().x() / self.width(), self.__boxes[idx].pos().y() / self.height())
+            self.__boxes[idx].canvasBoxRatio = \
+                (self.__boxes[idx].width() / self.width(), self.__boxes[idx].height() / self.height())
 
         self.changeBoxNum.emit(len(self.__boxes))
 
