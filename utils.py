@@ -5,14 +5,20 @@ from tqdm import tqdm
 import os
 import numpy as np
 import xml.etree.ElementTree as ET
+import os
+from glob import glob
 
 
 class ImageContainer:
     def __init__(self, image, filePath):
-        self.image = image
+        self.__image = image
         self.__imageWidth = image.width()
         self.__imageHeight = image.height()
         self.__filePath  = filePath
+
+    @property
+    def image(self):
+        return self.__image
 
     @property
     def filePath(self):
@@ -55,6 +61,15 @@ def instance_to_xml(annotation):
                 E.ymax(y_min+height),
                 ),
             )
+
+
+def globWithTypes(path, exts):
+    path = os.path.join(path, "*")
+    filePath = []
+    for files in [glob(path+ext) for ext in exts]:
+        for file in files:
+            filePath.append(file)
+    return filePath
 
 ################################################
 #                                              #
@@ -327,4 +342,5 @@ def parse_annotation(ann_dir, img_dir, labels, data_name):
 
 
 if __name__ == '__main__':
-    dataset_check('./test/images', './test/annotations', ['Ship', 'Buoy', 'Other'], 'test')
+    # dataset_check('./test/images', './test/annotations', ['Ship', 'Buoy', 'Other'], 'test')
+    globWithTypes('./types', ['png', 'jpg', 'jpeg'])

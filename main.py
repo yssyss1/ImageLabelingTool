@@ -1,13 +1,15 @@
 from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QPushButton, \
-    QFileDialog, QLabel, QRubberBand, QComboBox, QMenu, QShortcut, QMainWindow, QAction, QSizePolicy
+    QFileDialog, QLabel, QRubberBand, QComboBox, QMenu, QShortcut, QMainWindow, QAction, QSizePolicy, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QColor, QPalette, QBrush, QPainter, QPen, QIcon, QKeySequence
 from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, QObject, pyqtSlot
 import sys
-from utils import ImageContainer, xml_root, instance_to_xml, prediction, load_image
+from utils import ImageContainer, xml_root, instance_to_xml, prediction, load_image, globWithTypes
 from lxml import etree
 from enum import Enum
 from keras.models import load_model
 import tensorflow as tf
+from glob import glob
+import os
 
 
 class Mode(Enum):
@@ -26,7 +28,7 @@ class ResizeMode(Enum):
     TOP = 1
     TOPRIGHT = 2
     RIGHT = 3
-    RIGHTBOTTOM = 4
+    BOTTOMRIGHT = 4
     BOTTOM = 5
     BOTTOMLEFT = 6
     LEFT = 7
@@ -35,7 +37,8 @@ class ResizeMode(Enum):
 
 class AppString(Enum):
     TITLE = 'Labeling tool'
-    LOAD = 'Load'
+    LOADFILE = 'File'
+    LOADFOLDER = 'Folder'
     SAVE = 'Save'
     DELETE = 'Delete'
     AUTOLABEL = 'AutoLabel'
@@ -74,7 +77,7 @@ class BoundingBox(QRubberBand):
         return (self.x() + self.width() - self.pointCheckRange <= pos.x() < self.x() + self.width()) and \
                (self.y() + self.pointCheckRange <= pos.y() < self.y() + self.height() - self.pointCheckRange)
 
-    def pointOnRightBottom(self, pos):
+    def pointOnBottomRight(self, pos):
         return (self.x() + self.width() - self.pointCheckRange <= pos.x() < self.x() + self.width()) and \
                (self.y() + self.height() - self.pointCheckRange <= pos.y() < self.y() + self.height())
 
@@ -241,7 +244,6 @@ class Viewer(QLabel):
 
                 newX, newY, newW, newH = self.__getResizeDimension(selectedBox, QMouseEvent.pos(), self.resizeMode)
 
-                #TODO - MAKE REVERSIBLE
                 selectedBox.setGeometry(QRect(newX, newY, newW, newH))
                 selectedBox.geometry()
 
@@ -379,27 +381,68 @@ class Viewer(QLabel):
         if resizeMode == ResizeMode.TOPLEFT:
             newX, newY = mousePos.x(), mousePos.y()
             newW, newH = oldBottomRightX - mousePos.x(), oldBottomRightY - mousePos.y()
+
+            if newW < 0 and newH < 0:
+                self.resizeMode = ResizeMode.BOTTOMRIGHT
+            elif newW < 0:
+                self.resizeMode = ResizeMode.TOPRIGHT
+            elif newH < 0:
+                self.resizeMode = ResizeMode.BOTTOMLEFT
         elif resizeMode == ResizeMode.TOP:
             newX, newY = oldTopLeftX, mousePos.y()
             newW, newH = oldWidth, oldBottomRightY - mousePos.y()
+
+            if newH < 0:
+                self.resizeMode = ResizeMode.BOTTOM
         elif resizeMode == ResizeMode.TOPRIGHT:
             newX, newY = oldTopLeftX, mousePos.y()
             newW, newH = mousePos.x() - oldTopLeftX, oldBottomRightY - mousePos.y()
+
+            if newW < 0 and newH < 0:
+                self.resizeMode = ResizeMode.BOTTOMLEFT
+            elif newW < 0:
+                self.resizeMode = ResizeMode.TOPLEFT
+            elif newH < 0:
+                self.resizeMode = ResizeMode.BOTTOMRIGHT
         elif resizeMode == ResizeMode.RIGHT:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = mousePos.x() - oldTopLeftX, oldHeight
-        elif resizeMode == ResizeMode.RIGHTBOTTOM:
+
+            if newW < 0:
+                self.resizeMode = ResizeMode.LEFT
+        elif resizeMode == ResizeMode.BOTTOMRIGHT:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = mousePos.x() - oldTopLeftX, mousePos.y() - oldTopLeftY
+
+            if newW < 0 and newH < 0:
+                self.resizeMode = ResizeMode.TOPLEFT
+            elif newW < 0:
+                self.resizeMode = ResizeMode.BOTTOMLEFT
+            elif newH < 0:
+                self.resizeMode = ResizeMode.TOPRIGHT
+
         elif resizeMode == ResizeMode.BOTTOM:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = oldWidth, mousePos.y() - oldTopLeftY
+
+            if newH < 0:
+                self.resizeMode = ResizeMode.TOP
         elif resizeMode == ResizeMode.BOTTOMLEFT:
             newX, newY = mousePos.x(), oldTopLeftY
             newW, newH = oldBottomRightX - mousePos.x(), mousePos.y() - oldTopLeftY
+
+            if newW < 0 and newH < 0:
+                self.resizeMode = ResizeMode.TOPRIGHT
+            elif newW < 0:
+                self.resizeMode = ResizeMode.BOTTOMRIGHT
+            elif newH < 0:
+                self.resizeMode = ResizeMode.TOPLEFT
         elif resizeMode == ResizeMode.LEFT:
             newX, newY = mousePos.x(), oldTopLeftY
             newW, newH = oldBottomRightX - mousePos.x(), oldHeight
+
+            if newW < 0:
+                self.resizeMode = ResizeMode.RIGHT
 
         return (newX, newY, newW, newH)
 
@@ -426,9 +469,9 @@ class Viewer(QLabel):
         elif box.pointOnRight(QMouseEvent):
             self.__changeCursor(Qt.SizeHorCursor)
             return ResizeMode.RIGHT
-        elif box.pointOnRightBottom(QMouseEvent):
+        elif box.pointOnBottomRight(QMouseEvent):
             self.__changeCursor(Qt.SizeFDiagCursor)
-            return ResizeMode.RIGHTBOTTOM
+            return ResizeMode.BOTTOMRIGHT
         elif box.pointOnBottom(QMouseEvent):
             self.__changeCursor(Qt.SizeVerCursor)
             return ResizeMode.BOTTOM
@@ -473,20 +516,22 @@ class MainUI(object):
         self.allowDataType = '(*.jpg *.png, *.jpeg)'
 
     def setupUi(self):
-        self.loadBtn = QAction(QIcon('./icon/plus-square-outline.svg'), AppString.LOAD.value, self)
-        self.loadBtn.setIconText(AppString.LOAD.value)
+        self.loadFileBtn = QAction(QIcon('./icon/file-add-outline.svg'), AppString.LOADFILE.value, self)
+        self.loadFileBtn.setIconText(AppString.LOADFILE.value)
+        self.loadFolderBtn = QAction(QIcon('./icon/folder-add-outline.svg'), AppString.LOADFOLDER.value, self)
+        self.loadFolderBtn.setIconText(AppString.LOADFOLDER.value)
         self.saveBtn = QAction(QIcon('./icon/download-outline.svg'), AppString.SAVE.value, self, shortcut="Ctrl+S")
         self.saveBtn.setIconText(AppString.SAVE.value)
-        self.description = QAction(QIcon('./icon/question-mark-outline.svg'), AppString.DESCRIPTION.value, self)
-        self.description.setIconText(AppString.DESCRIPTION.value)
         self.autoLabelBtn = QAction(QIcon('./icon/crop-outline.svg'), AppString.AUTOLABEL.value, self)
         self.autoLabelBtn.setIconText(AppString.AUTOLABEL.value)
+        self.description = QAction(QIcon('./icon/question-mark-outline.svg'), AppString.DESCRIPTION.value, self)
+        self.description.setIconText(AppString.DESCRIPTION.value)
 
         self.labelComboBox = QComboBox()
 
         self.toolbar = self.addToolBar('ToolBar')
         self.toolbar.setMovable(False)
-        self.toolbar.addActions([self.loadBtn, self.saveBtn, self.description, self.autoLabelBtn])
+        self.toolbar.addActions([self.loadFileBtn, self.loadFolderBtn, self.saveBtn, self.autoLabelBtn, self.description])
 
         for action in self.toolbar.actions():
             widget = self.toolbar.widgetForAction(action)
@@ -507,10 +552,17 @@ class MainUI(object):
         self.notification.setStyleSheet('background-color: rgb(0, 255, 0)')
         self.boundingBoxNum = QLabel('Box: 0')
 
+        self.description = QLabel('')
+        self.pbar = QProgressBar(self)
+        self.pbar.setMaximumWidth(300)
+        self.pbar.hide()
+
         self.bottomBar = self.statusBar()
         self.bottomBar.setStyleSheet("background-color: rgb(200, 200, 200)")
         self.bottomBar.addWidget(self.notification)
         self.bottomBar.addWidget(self.boundingBoxNum)
+        self.bottomBar.addPermanentWidget(self.description)
+        self.bottomBar.addPermanentWidget(self.pbar)
 
         self.setCentralWidget(self.viewer)
         self.setGeometry(self.windowXPos, self.windowYPos, self.windowWidth, self.windowHeight)
@@ -523,7 +575,8 @@ class Labeling(QMainWindow, MainUI):
         self.setupUi()
         self.setWindowIcon(QIcon('./icon/favicon.png'))
         self.setMinimumSize(self.windowWidth, self.windowHeight)
-        self.loadBtn.triggered.connect(self.openFileDialogue)
+        self.loadFileBtn.triggered.connect(self.openFileDialogue)
+        self.loadFolderBtn.triggered.connect(self.openFolderDialogue)
         self.saveBtn.triggered.connect(self.saveFileDialogue)
         self.autoLabelBtn.triggered.connect(self.autoLabel)
         self.viewer.changeBoxNum.connect(self.changeBoxNum)
@@ -539,7 +592,8 @@ class Labeling(QMainWindow, MainUI):
         self.show()
         self.setFocus()
         self.loadImage = None
-        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        self.getMultipleInput = False
+        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -570,6 +624,7 @@ class Labeling(QMainWindow, MainUI):
                 self.viewer.mode = Mode.LABELING
                 self.viewer.mouseLineVisible = True
                 self.__changeModeLabel(self.viewer.mode)
+                QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
         elif self.viewer.correctionMode != CorrectionMode.OTHER:
             if QKeyEvent.key() == Qt.Key_Shift:
                 self.__changeModeLabel(Mode.LABELING)
@@ -580,14 +635,40 @@ class Labeling(QMainWindow, MainUI):
         self.boundingBoxNum.setText('Box: {}'.format(num))
 
     def openFileDialogue(self):
-        filePath, fileType = QFileDialog.getOpenFileName(self, 'Open', '', 'Image files {}'.format(self.allowDataType))
+        filePath, fileType = QFileDialog.getOpenFileName(self, 'Select File', '', 'Image files {}'.format(self.allowDataType), options=QFileDialog.DontUseNativeDialog)
 
         if filePath != '':
+            self.getMultipleInput = False
             rawImage = QImage(filePath)
             self.initialize()
             self.viewer.initialize()
             self.loadImage = ImageContainer(rawImage, filePath)
             self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
+
+    def openFolderDialogue(self):
+        dir = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
+        if dir != '':
+            self.getMultipleInput = True
+            self.imagePaths = globWithTypes(dir, ['png', 'jpg', 'jpeg'])
+            self.initialize()
+            self.viewer.initialize()
+            self.loadImages = []
+            self.description.setText('Loading images')
+            self.pbar.show()
+
+            for idx, imagePath in enumerate(self.imagePaths):
+                percent = (idx + 1) * (100 / len(self.imagePaths))
+                self.pbar.setValue(percent)
+                rawImage = QImage(imagePath)
+                self.loadImages.append(ImageContainer(rawImage, imagePath))
+
+            self.description.setText('')
+            self.pbar.setValue(0)
+            self.pbar.hide()
+            firstImage = self.loadImages[0]
+            self.loadImage = ImageContainer(firstImage.image, firstImage.filePath)
+            self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
+
 
     def saveFileDialogue(self):
         if self.loadImage is not None:
