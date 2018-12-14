@@ -572,6 +572,7 @@ class MainUI(object):
 class Labeling(QMainWindow, MainUI):
     def __init__(self):
         super().__init__()
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         self.setupUi()
         self.setWindowIcon(QIcon('./icon/favicon.png'))
         self.setMinimumSize(self.windowWidth, self.windowHeight)
@@ -593,7 +594,8 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -648,6 +650,7 @@ class Labeling(QMainWindow, MainUI):
     def openFolderDialogue(self):
         dir = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
         if dir != '':
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
             self.getMultipleInput = True
             self.imagePaths = globWithTypes(dir, ['png', 'jpg', 'jpeg'])
             self.initialize()
@@ -668,6 +671,7 @@ class Labeling(QMainWindow, MainUI):
             firstImage = self.loadImages[0]
             self.loadImage = ImageContainer(firstImage.image, firstImage.filePath)
             self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
+            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
 
     def saveFileDialogue(self):
@@ -681,7 +685,8 @@ class Labeling(QMainWindow, MainUI):
             self.__saveToXml(savePath)
 
     def autoLabel(self):
-        if self.loadImage != None:
+        if self.loadImage is not None:
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
             image = load_image(self.loadImage.filePath)
             boundingBoxes = prediction(image, self.yolo)
 
@@ -691,6 +696,7 @@ class Labeling(QMainWindow, MainUI):
                 box[:] = [box[0]*newW/oldW, box[1]*newH/oldH, box[2]*newW/oldW, box[3]*newH/oldH]
 
             self.viewer.autoLabeling(boundingBoxes)
+            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
     def __saveToXml(self, filePath):
         bndBox = self.viewer.boxes
