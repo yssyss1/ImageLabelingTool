@@ -12,9 +12,9 @@ from glob import glob
 class ImageContainer:
     def __init__(self, image, filePath):
         self.__image = image
-        self.__imageWidth = image.width()
-        self.__imageHeight = image.height()
-        self.__filePath  = filePath
+        self.__imageWidth = image.width() if image is not None else 0
+        self.__imageHeight = image.height() if image is not None else 0
+        self.__filePath = filePath
 
     @property
     def image(self):

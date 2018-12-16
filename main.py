@@ -60,6 +60,12 @@ class Label(Enum):
     OTHER = 'Other'
 
 
+class Utils:
+
+    @staticmethod
+    def changeCursor(cursorShape):
+        QApplication.setOverrideCursor(QCursor(cursorShape))
+
 class BoundingBox(QRubberBand):
 
     def __init__(self, shape, parent, label):
@@ -231,7 +237,7 @@ class Viewer(QLabel):
 
                     if selectedIdx >= 0:
                         self.__correctionMode = CorrectionMode.MOVE
-                        self.__changeCursor(Qt.ClosedHandCursor)
+                        Utils.changeCursor(Qt.ClosedHandCursor)
                         self.translateOffset = QMouseEvent.pos() - self.__boxes[selectedIdx].pos()
                 self.selectedIdx = selectedIdx
         super().mousePressEvent(QMouseEvent)
@@ -263,7 +269,7 @@ class Viewer(QLabel):
         super().mouseMoveEvent(QMouseEvent)
 
     def mouseReleaseEvent(self, QMouseEvent):
-        self.__changeCursor(Qt.ArrowCursor)
+        Utils.changeCursor(Qt.ArrowCursor)
         if self.__makeBoundingBox:
             if self.__boxes[0].width() * self.__boxes[0].height() < self.drawingThreshold:
                 self.removeBoundingBox(0)
@@ -454,9 +460,6 @@ class Viewer(QLabel):
 
         return (newX, newY, newW, newH)
 
-    def __changeCursor(self, cursorShape):
-        QApplication.setOverrideCursor(QCursor(cursorShape))
-
     def __findResizingBox(self, QMouseEvent):
         for idx, box in enumerate(self.__boxes):
             resizeMode = self.__mouseOnEdge(box, QMouseEvent)
@@ -466,31 +469,31 @@ class Viewer(QLabel):
 
     def __mouseOnEdge(self, box:BoundingBox, QMouseEvent):
         if box.pointOnTopLeft(QMouseEvent):
-            self.__changeCursor(Qt.SizeFDiagCursor)
+            Utils.changeCursor(Qt.SizeFDiagCursor)
             return ResizeMode.TOPLEFT
         elif box.pointOnTop(QMouseEvent):
-            self.__changeCursor(Qt.SizeVerCursor)
+            Utils.changeCursor(Qt.SizeVerCursor)
             return ResizeMode.TOP
         elif box.pointOnTopRight(QMouseEvent):
-            self.__changeCursor(Qt.SizeBDiagCursor)
+            Utils.changeCursor(Qt.SizeBDiagCursor)
             return ResizeMode.TOPRIGHT
         elif box.pointOnRight(QMouseEvent):
-            self.__changeCursor(Qt.SizeHorCursor)
+            Utils.changeCursor(Qt.SizeHorCursor)
             return ResizeMode.RIGHT
         elif box.pointOnBottomRight(QMouseEvent):
-            self.__changeCursor(Qt.SizeFDiagCursor)
+            Utils.changeCursor(Qt.SizeFDiagCursor)
             return ResizeMode.BOTTOMRIGHT
         elif box.pointOnBottom(QMouseEvent):
-            self.__changeCursor(Qt.SizeVerCursor)
+            Utils.changeCursor(Qt.SizeVerCursor)
             return ResizeMode.BOTTOM
         elif box.pointOnBottomLeft(QMouseEvent):
-            self.__changeCursor(Qt.SizeBDiagCursor)
+            Utils.changeCursor(Qt.SizeBDiagCursor)
             return ResizeMode.BOTTOMLEFT
         elif box.pointOnLeft(QMouseEvent):
-            self.__changeCursor(Qt.SizeHorCursor)
+            Utils.changeCursor(Qt.SizeHorCursor)
             return ResizeMode.LEFT
         else:
-            self.__changeCursor(Qt.ArrowCursor)
+            Utils.changeCursor(Qt.ArrowCursor)
             return ResizeMode.OTHER
 
     def __clipCoordinateInWidget(self, QMouseEvent):
@@ -538,9 +541,6 @@ class MainUI(object):
         self.description = QAction(QIcon('./icon/question-mark-outline.svg'), AppString.DESCRIPTION.value, self)
         self.description.setIconText(AppString.DESCRIPTION.value)
         self.labelComboBox = QComboBox()
-        spacer = QWidget()
-        # spacer.setFixedWidth(20)
-        # spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         self.remaining = QLabel('| Remaining: ')
         self.pbarLoad = QProgressBar(self)
@@ -600,7 +600,7 @@ class MainUI(object):
 class Labeling(QMainWindow, MainUI):
     def __init__(self):
         super().__init__()
-        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        Utils.changeCursor(Qt.WaitCursor)
         self.setupUi()
         self.setWindowIcon(QIcon('./icon/favicon.png'))
         self.setMinimumSize(self.windowWidth, self.windowHeight)
@@ -623,8 +623,8 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
-        QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        Utils.changeCursor(Qt.ArrowCursor)
 
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
@@ -655,7 +655,7 @@ class Labeling(QMainWindow, MainUI):
                 self.viewer.mode = Mode.LABELING
                 self.viewer.mouseLineVisible = True
                 self.__changeModeLabel(self.viewer.mode)
-                QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+                Utils.changeCursor(Qt.ArrowCursor)
         elif self.viewer.correctionMode != CorrectionMode.OTHER:
             if QKeyEvent.key() == Qt.Key_Shift:
                 self.__changeModeLabel(Mode.LABELING)
@@ -671,10 +671,10 @@ class Labeling(QMainWindow, MainUI):
                                                          options=QFileDialog.DontUseNativeDialog)
 
         if videoPath != '':
-            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            Utils.changeCursor(Qt.WaitCursor)
             videoDir = self.__frame_extraction(videoPath)
             self.__multiInputLoading(videoDir)
-            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+            Utils.changeCursor(Qt.ArrowCursor)
 
     def openFileDialogue(self):
         imagePath, fileType = QFileDialog.getOpenFileName(self, 'Select Image', '', 'Image files {}'.format(self.allowImageType), options=QFileDialog.DontUseNativeDialog)
@@ -690,9 +690,9 @@ class Labeling(QMainWindow, MainUI):
     def openFolderDialogue(self):
         directory = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
         if directory != '':
-            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            Utils.changeCursor(Qt.WaitCursor)
             self.__multiInputLoading(directory)
-            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+            Utils.changeCursor(Qt.ArrowCursor)
 
     def saveFileDialogue(self):
         if self.getMultipleInput:
@@ -707,18 +707,18 @@ class Labeling(QMainWindow, MainUI):
                 threading.Thread(target=self.__threadMessage, args=('{} saved!'.format(xmlName),), name='Thread-SavedMessage').start()
 
                 self.currentIdx += 1
-                if self.currentIdx < len(self.loadImages):
+                if self.currentIdx < len(self.imagePaths):
                     self.initialize()
                     self.viewer.initialize()
-                    self.loadImage = ImageContainer(self.loadImages[self.currentIdx].image, self.loadImages[self.currentIdx].filePath)
+                    rawImage = QImage(self.imagePaths[self.currentIdx])
+                    self.loadImage = ImageContainer(rawImage, self.imagePaths[self.currentIdx])
                     self.viewer.setPixmap(QPixmap.fromImage(self.loadImage.image.scaled(self.viewer.width(), self.viewer.height())))
                     self.remainingNotification.show()
-                    self.imageIdx.setText('{}/{}'.format(self.currentIdx+1, len(self.loadImages)))
+                    self.imageIdx.setText('{}/{}'.format(self.currentIdx+1, len(self.imagePaths)))
                     self.pbarLoad.setValue((self.currentIdx+1) * (100 / len(self.imagePaths)))
                 else:
                     self.getMultipleInput = False
                     self.currentIdx = 0
-                    self.loadImages.clear()
                     self.loadImage = None
                     self.pbarLoad.setValue(0)
                     self.imageIdx.setText('')
@@ -743,7 +743,7 @@ class Labeling(QMainWindow, MainUI):
 
     def autoLabel(self):
         if self.loadImage is not None:
-            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            Utils.changeCursor(Qt.WaitCursor)
             image = load_image(self.loadImage.filePath)
             boundingBoxes = prediction(image, self.yolo)
 
@@ -753,7 +753,7 @@ class Labeling(QMainWindow, MainUI):
                 box[:] = [box[0]*newW/oldW, box[1]*newH/oldH, box[2]*newW/oldW, box[3]*newH/oldH]
 
             self.viewer.autoLabeling(boundingBoxes)
-            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+            Utils.changeCursor(Qt.ArrowCursor)
 
     def __multiInputLoading(self, dir):
         self.imageSaveFolder = os.path.join(dir, 'image')
@@ -771,22 +771,10 @@ class Labeling(QMainWindow, MainUI):
 
         self.initialize()
         self.viewer.initialize()
-        self.loadImages = []
-        self.description.setText('Loading images')
-        self.pbar.setValue(0)
-        self.pbar.show()
 
-        for idx, imagePath in enumerate(self.imagePaths):
-            percent = (idx + 1) * (100 / len(self.imagePaths))
-            self.pbar.setValue(percent)
-            rawImage = QImage(imagePath)
-            self.loadImages.append(ImageContainer(rawImage, imagePath))
-
-        self.description.setText('')
-        self.pbar.hide()
         self.currentIdx = 0
-        self.loadImage = ImageContainer(self.loadImages[self.currentIdx].image,
-                                        self.loadImages[self.currentIdx].filePath)
+        self.loadImage = ImageContainer(QImage(self.imagePaths[self.currentIdx]),
+                                        self.imagePaths[self.currentIdx])
         self.viewer.setPixmap(QPixmap.fromImage(self.loadImage.image.scaled(self.viewer.width(), self.viewer.height())))
 
         self.remainingNotification.show()
