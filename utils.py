@@ -71,6 +71,7 @@ def globWithTypes(path, exts):
             filePath.append(file)
     return filePath
 
+
 ################################################
 #                                              #
 #   BELOW LINE IS Yolo Postprocessing CODE     #
@@ -342,5 +343,5 @@ def parse_annotation(ann_dir, img_dir, labels, data_name):
 
 
 if __name__ == '__main__':
-    # dataset_check('./test/images', './test/annotations', ['Ship', 'Buoy', 'Other'], 'test')
-    globWithTypes('./types', ['png', 'jpg', 'jpeg'])
+    dataset_check('./types/image', './types/annotation', ['Ship', 'Buoy', 'Other'], 'test')
+    # globWithTypes('./types', ['png', 'jpg', 'jpeg'])

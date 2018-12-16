@@ -1,7 +1,10 @@
+import random
+import time
+
 from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QPushButton, \
     QFileDialog, QLabel, QRubberBand, QComboBox, QMenu, QShortcut, QMainWindow, QAction, QSizePolicy, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap, QCursor, QColor, QPalette, QBrush, QPainter, QPen, QIcon, QKeySequence
-from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, QObject, pyqtSlot
+from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, QObject, pyqtSlot, QThread
 import sys
 from utils import ImageContainer, xml_root, instance_to_xml, prediction, load_image, globWithTypes
 from lxml import etree
@@ -10,6 +13,10 @@ from keras.models import load_model
 import tensorflow as tf
 from glob import glob
 import os
+import shutil
+import threading
+import cv2
+import numpy as np
 
 
 class Mode(Enum):
@@ -39,6 +46,7 @@ class AppString(Enum):
     TITLE = 'Labeling tool'
     LOADFILE = 'File'
     LOADFOLDER = 'Folder'
+    LOADVIDEO = 'Video'
     SAVE = 'Save'
     DELETE = 'Delete'
     AUTOLABEL = 'AutoLabel'
@@ -507,31 +515,50 @@ class Viewer(QLabel):
 class MainUI(object):
 
     def __init__(self):
-        self.windowWidth = 800
+        self.windowWidth = 1000
         self.windowHeight = 800
         self.windowTitle = AppString.TITLE.value
         self.windowXPos = 300
         self.windowYPos = 200
 
-        self.allowDataType = '(*.jpg *.png, *.jpeg)'
+        self.allowImageType = '(*.jpg *.png *.jpeg)'
+        self.allowVideoType = '(*.mp4 *.avi)'
 
     def setupUi(self):
         self.loadFileBtn = QAction(QIcon('./icon/file-add-outline.svg'), AppString.LOADFILE.value, self)
         self.loadFileBtn.setIconText(AppString.LOADFILE.value)
         self.loadFolderBtn = QAction(QIcon('./icon/folder-add-outline.svg'), AppString.LOADFOLDER.value, self)
         self.loadFolderBtn.setIconText(AppString.LOADFOLDER.value)
+        self.loadVideoBtn = QAction(QIcon('./icon/film-outline.svg'), AppString.LOADVIDEO.value, self)
+        self.loadVideoBtn.setIconText(AppString.LOADVIDEO.value)
         self.saveBtn = QAction(QIcon('./icon/download-outline.svg'), AppString.SAVE.value, self, shortcut="Ctrl+S")
         self.saveBtn.setIconText(AppString.SAVE.value)
         self.autoLabelBtn = QAction(QIcon('./icon/crop-outline.svg'), AppString.AUTOLABEL.value, self)
         self.autoLabelBtn.setIconText(AppString.AUTOLABEL.value)
         self.description = QAction(QIcon('./icon/question-mark-outline.svg'), AppString.DESCRIPTION.value, self)
         self.description.setIconText(AppString.DESCRIPTION.value)
-
         self.labelComboBox = QComboBox()
+        spacer = QWidget()
+        # spacer.setFixedWidth(20)
+        # spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        self.remaining = QLabel('| Remaining: ')
+        self.pbarLoad = QProgressBar(self)
+        self.pbarLoad.setFixedWidth(300)
+        self.imageIdx = QLabel(' 1/120')
+
+        remainingLayout = QHBoxLayout()
+        remainingLayout.addWidget(self.remaining, 0)
+        remainingLayout.addWidget(self.pbarLoad, 0)
+        remainingLayout.addWidget(self.imageIdx, 1)
+        remainingLayout.setContentsMargins(0, 0, 0, 0)
+        self.remainingNotification = QWidget()
+        self.remainingNotification.setLayout(remainingLayout)
+        self.remainingNotification.hide()
 
         self.toolbar = self.addToolBar('ToolBar')
         self.toolbar.setMovable(False)
-        self.toolbar.addActions([self.loadFileBtn, self.loadFolderBtn, self.saveBtn, self.autoLabelBtn, self.description])
+        self.toolbar.addActions([self.loadFileBtn, self.loadFolderBtn, self.loadVideoBtn, self.saveBtn, self.autoLabelBtn, self.description])
 
         for action in self.toolbar.actions():
             widget = self.toolbar.widgetForAction(action)
@@ -542,7 +569,7 @@ class MainUI(object):
         self.toolbar.setIconSize(QSize(30, 30))
         self.toolbar.setContextMenuPolicy(Qt.PreventContextMenu)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon | Qt.AlignLeading)
-        self.toolbar.setStyleSheet('QToolBar{spacing:0px;}')
+        self.toolbar.setStyleSheet('QToolBar {padding-right: 30px;}')
 
         self.viewer = Viewer(self)
         self.viewer.setScaledContents(True)
@@ -550,7 +577,7 @@ class MainUI(object):
 
         self.notification = QLabel(Mode.LABELING.name, self)
         self.notification.setStyleSheet('background-color: rgb(0, 255, 0)')
-        self.boundingBoxNum = QLabel('Box: 0')
+        self.boundingBoxNum = QLabel('| Box: 0')
 
         self.description = QLabel('')
         self.pbar = QProgressBar(self)
@@ -561,6 +588,7 @@ class MainUI(object):
         self.bottomBar.setStyleSheet("background-color: rgb(200, 200, 200)")
         self.bottomBar.addWidget(self.notification)
         self.bottomBar.addWidget(self.boundingBoxNum)
+        self.bottomBar.addWidget(self.remainingNotification)
         self.bottomBar.addPermanentWidget(self.description)
         self.bottomBar.addPermanentWidget(self.pbar)
 
@@ -578,6 +606,7 @@ class Labeling(QMainWindow, MainUI):
         self.setMinimumSize(self.windowWidth, self.windowHeight)
         self.loadFileBtn.triggered.connect(self.openFileDialogue)
         self.loadFolderBtn.triggered.connect(self.openFolderDialogue)
+        self.loadVideoBtn.triggered.connect(self.openVideoDiaglogue)
         self.saveBtn.triggered.connect(self.saveFileDialogue)
         self.autoLabelBtn.triggered.connect(self.autoLabel)
         self.viewer.changeBoxNum.connect(self.changeBoxNum)
@@ -594,7 +623,7 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
         QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
     def initialize(self):
@@ -634,55 +663,83 @@ class Labeling(QMainWindow, MainUI):
 
     @pyqtSlot(int)
     def changeBoxNum(self, num):
-        self.boundingBoxNum.setText('Box: {}'.format(num))
+        self.boundingBoxNum.setText('| Box: {}'.format(num))
+
+    def openVideoDiaglogue(self):
+        videoPath, fileType = QFileDialog.getOpenFileName(self, 'Select Video', '',
+                                                         'Video files {}'.format(self.allowVideoType),
+                                                         options=QFileDialog.DontUseNativeDialog)
+
+        if videoPath != '':
+            QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+            videoDir = self.__frame_extraction(videoPath)
+            self.__multiInputLoading(videoDir)
+            QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
     def openFileDialogue(self):
-        filePath, fileType = QFileDialog.getOpenFileName(self, 'Select File', '', 'Image files {}'.format(self.allowDataType), options=QFileDialog.DontUseNativeDialog)
+        imagePath, fileType = QFileDialog.getOpenFileName(self, 'Select Image', '', 'Image files {}'.format(self.allowImageType), options=QFileDialog.DontUseNativeDialog)
 
-        if filePath != '':
+        if imagePath != '':
             self.getMultipleInput = False
-            rawImage = QImage(filePath)
+            rawImage = QImage(imagePath)
             self.initialize()
             self.viewer.initialize()
-            self.loadImage = ImageContainer(rawImage, filePath)
+            self.loadImage = ImageContainer(rawImage, imagePath)
             self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
 
     def openFolderDialogue(self):
-        dir = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
-        if dir != '':
+        directory = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
+        if directory != '':
             QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
-            self.getMultipleInput = True
-            self.imagePaths = globWithTypes(dir, ['png', 'jpg', 'jpeg'])
-            self.initialize()
-            self.viewer.initialize()
-            self.loadImages = []
-            self.description.setText('Loading images')
-            self.pbar.show()
-
-            for idx, imagePath in enumerate(self.imagePaths):
-                percent = (idx + 1) * (100 / len(self.imagePaths))
-                self.pbar.setValue(percent)
-                rawImage = QImage(imagePath)
-                self.loadImages.append(ImageContainer(rawImage, imagePath))
-
-            self.description.setText('')
-            self.pbar.setValue(0)
-            self.pbar.hide()
-            firstImage = self.loadImages[0]
-            self.loadImage = ImageContainer(firstImage.image, firstImage.filePath)
-            self.viewer.setPixmap(QPixmap.fromImage(rawImage.scaled(self.viewer.width(), self.viewer.height())))
+            self.__multiInputLoading(directory)
             QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
 
-
     def saveFileDialogue(self):
-        if self.loadImage is not None:
-            xmlName = self.loadImage.fileName.split('.')[0] + '.xml'
-            savePath, fileType = QFileDialog.getSaveFileName(self, 'Save', xmlName, 'xml files {}'.format('*.xml'))
+        if self.getMultipleInput:
+            if self.loadImage is not None:
+                xmlName = self.loadImage.fileName.split('.')[0] + '.xml'
+                imageFullPath = os.path.join(self.imageSaveFolder, self.loadImage.fileName)
+                annotationFullPath = os.path.join(self.annotationSaveFolder, xmlName)
 
-            if savePath.split('/')[-1].split('.')[-1] != 'xml':
-                savePath += '.xml'
+                self.__saveToXml(annotationFullPath)
+                shutil.move(self.loadImage.filePath, imageFullPath)
 
-            self.__saveToXml(savePath)
+                threading.Thread(target=self.__threadMessage, args=('{} saved!'.format(xmlName),), name='Thread-SavedMessage').start()
+
+                self.currentIdx += 1
+                if self.currentIdx < len(self.loadImages):
+                    self.initialize()
+                    self.viewer.initialize()
+                    self.loadImage = ImageContainer(self.loadImages[self.currentIdx].image, self.loadImages[self.currentIdx].filePath)
+                    self.viewer.setPixmap(QPixmap.fromImage(self.loadImage.image.scaled(self.viewer.width(), self.viewer.height())))
+                    self.remainingNotification.show()
+                    self.imageIdx.setText('{}/{}'.format(self.currentIdx+1, len(self.loadImages)))
+                    self.pbarLoad.setValue((self.currentIdx+1) * (100 / len(self.imagePaths)))
+                else:
+                    self.getMultipleInput = False
+                    self.currentIdx = 0
+                    self.loadImages.clear()
+                    self.loadImage = None
+                    self.pbarLoad.setValue(0)
+                    self.imageIdx.setText('')
+                    self.remainingNotification.hide()
+
+                    pixmap = QPixmap(self.viewer.width(), self.viewer.height())
+                    pixmap.fill(QColor(Qt.gray))
+                    self.viewer.setPixmap(pixmap)
+
+                    self.initialize()
+                    self.viewer.initialize()
+
+        elif not self.getMultipleInput:
+            if self.loadImage is not None:
+                xmlName = self.loadImage.fileName.split('.')[0] + '.xml'
+                savePath, fileType = QFileDialog.getSaveFileName(self, 'Save', xmlName, 'xml files {}'.format('*.xml'))
+
+                if savePath.split('/')[-1].split('.')[-1] != 'xml':
+                    savePath += '.xml'
+
+                self.__saveToXml(savePath)
 
     def autoLabel(self):
         if self.loadImage is not None:
@@ -697,6 +754,49 @@ class Labeling(QMainWindow, MainUI):
 
             self.viewer.autoLabeling(boundingBoxes)
             QApplication.setOverrideCursor(QCursor(Qt.ArrowCursor))
+
+    def __multiInputLoading(self, dir):
+        self.imageSaveFolder = os.path.join(dir, 'image')
+        self.annotationSaveFolder = os.path.join(dir, 'annotation')
+        os.makedirs(self.imageSaveFolder, exist_ok=True)
+        os.makedirs(self.annotationSaveFolder, exist_ok=True)
+
+        self.getMultipleInput = True
+        self.imagePaths = globWithTypes(dir, ['png', 'jpg', 'jpeg'])
+
+        if len(self.imagePaths) < 1:
+            threading.Thread(target=self.__threadMessage, args=('Images not exist in {}'.format(dir),),
+                             name='Thread-NoImageExist').start()
+            return
+
+        self.initialize()
+        self.viewer.initialize()
+        self.loadImages = []
+        self.description.setText('Loading images')
+        self.pbar.setValue(0)
+        self.pbar.show()
+
+        for idx, imagePath in enumerate(self.imagePaths):
+            percent = (idx + 1) * (100 / len(self.imagePaths))
+            self.pbar.setValue(percent)
+            rawImage = QImage(imagePath)
+            self.loadImages.append(ImageContainer(rawImage, imagePath))
+
+        self.description.setText('')
+        self.pbar.hide()
+        self.currentIdx = 0
+        self.loadImage = ImageContainer(self.loadImages[self.currentIdx].image,
+                                        self.loadImages[self.currentIdx].filePath)
+        self.viewer.setPixmap(QPixmap.fromImage(self.loadImage.image.scaled(self.viewer.width(), self.viewer.height())))
+
+        self.remainingNotification.show()
+        self.imageIdx.setText('{}/{}'.format(1, len(self.imagePaths)))
+        self.pbarLoad.setValue(1 * (100 / len(self.imagePaths)))
+
+    def __threadMessage(self, message):
+        self.description.setText(message)
+        time.sleep(2)
+        self.description.setText('')
 
     def __saveToXml(self, filePath):
         bndBox = self.viewer.boxes
@@ -723,6 +823,46 @@ class Labeling(QMainWindow, MainUI):
         elif mode == Mode.LABELING:
             self.notification.setText(Mode.LABELING.name)
             self.notification.setStyleSheet('QWidget { background-color: %s }' % (QColor(0, 255, 0).name()))
+
+    def __frame_extraction(self, video_path):
+        video_name = os.path.basename(video_path).split('.')[0]
+        video_directory = os.path.dirname(video_path)
+        destination_path = os.path.join(video_directory, video_name)
+        os.makedirs(destination_path, exist_ok=True)
+
+        self.description.setText('Frame extraction ')
+        self.pbar.show()
+        self.pbar.setValue(0)
+
+        cnt = 0
+        cap = cv2.VideoCapture(video_path)
+        length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+
+            if ret:
+                cv2.imwrite(
+                    os.path.join(destination_path, '{}_{}.jpg'.format(video_name, cnt)),
+                    frame)
+                cnt += 1
+                percent = (cnt + 1) * (100 / length)
+                self.pbar.setValue(percent)
+            else:
+                break
+
+        cap.release()
+
+        self.description.setText('')
+        self.pbar.hide()
+        frames = np.array(glob(os.path.join(destination_path, '*.jpg')))
+        data_length = len(frames)
+        notUsingFrames = frames[random.sample(range(data_length), int(0.9 * data_length))]
+
+        for frame in notUsingFrames:
+            os.remove(frame)
+
+        return destination_path
 
 
 if __name__ == '__main__':
