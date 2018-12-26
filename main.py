@@ -629,6 +629,10 @@ class Labeling(QMainWindow, MainUI):
     def initialize(self):
         self.labelComboBox.setCurrentIndex(0)
         self.changeBoxNum(0)
+        self.pbarLoad.setValue(0)
+        self.loadImage = None
+        self.remainingNotification.hide()
+        self.imageIdx.setText('')
 
     def keyPressEvent(self, QKeyEvent):
         if not self.viewer.makeBoundingBox and self.viewer.correctionMode == CorrectionMode.OTHER:
@@ -671,6 +675,8 @@ class Labeling(QMainWindow, MainUI):
                                                          options=QFileDialog.DontUseNativeDialog)
 
         if videoPath != '':
+            self.initialize()
+            self.viewer.initialize()
             Utils.changeCursor(Qt.WaitCursor)
             videoDir = self.__frame_extraction(videoPath)
             self.__multiInputLoading(videoDir)
@@ -690,6 +696,8 @@ class Labeling(QMainWindow, MainUI):
     def openFolderDialogue(self):
         directory = QFileDialog.getExistingDirectory(self, 'Select Directory', options=QFileDialog.DontUseNativeDialog)
         if directory != '':
+            self.initialize()
+            self.viewer.initialize()
             Utils.changeCursor(Qt.WaitCursor)
             self.__multiInputLoading(directory)
             Utils.changeCursor(Qt.ArrowCursor)
@@ -708,21 +716,18 @@ class Labeling(QMainWindow, MainUI):
 
                 self.currentIdx += 1
                 if self.currentIdx < len(self.imagePaths):
-                    self.initialize()
+                    self.labelComboBox.setCurrentIndex(0)
+                    self.changeBoxNum(0)
                     self.viewer.initialize()
                     rawImage = QImage(self.imagePaths[self.currentIdx])
                     self.loadImage = ImageContainer(rawImage, self.imagePaths[self.currentIdx])
                     self.viewer.setPixmap(QPixmap.fromImage(self.loadImage.image.scaled(self.viewer.width(), self.viewer.height())))
-                    self.remainingNotification.show()
                     self.imageIdx.setText('{}/{}'.format(self.currentIdx+1, len(self.imagePaths)))
                     self.pbarLoad.setValue((self.currentIdx+1) * (100 / len(self.imagePaths)))
                 else:
                     self.getMultipleInput = False
                     self.currentIdx = 0
                     self.loadImage = None
-                    self.pbarLoad.setValue(0)
-                    self.imageIdx.setText('')
-                    self.remainingNotification.hide()
 
                     pixmap = QPixmap(self.viewer.width(), self.viewer.height())
                     pixmap.fill(QColor(Qt.gray))
@@ -736,10 +741,18 @@ class Labeling(QMainWindow, MainUI):
                 xmlName = self.loadImage.fileName.split('.')[0] + '.xml'
                 savePath, fileType = QFileDialog.getSaveFileName(self, 'Save', xmlName, 'xml files {}'.format('*.xml'))
 
-                if savePath.split('/')[-1].split('.')[-1] != 'xml':
-                    savePath += '.xml'
+                if fileType != '':
+                    if savePath.split('/')[-1].split('.')[-1] != 'xml':
+                        savePath += '.xml'
 
-                self.__saveToXml(savePath)
+                    self.__saveToXml(savePath)
+
+                    pixmap = QPixmap(self.viewer.width(), self.viewer.height())
+                    pixmap.fill(QColor(Qt.gray))
+                    self.viewer.setPixmap(pixmap)
+
+                    self.initialize()
+                    self.viewer.initialize()
 
     def autoLabel(self):
         if self.loadImage is not None:
