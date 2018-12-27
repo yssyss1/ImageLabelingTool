@@ -66,6 +66,7 @@ class Utils:
     def changeCursor(cursorShape):
         QApplication.setOverrideCursor(QCursor(cursorShape))
 
+
 class BoundingBox(QRubberBand):
 
     def __init__(self, shape, parent, label):
@@ -293,7 +294,7 @@ class Viewer(QLabel):
             elif self.__correctionMode == CorrectionMode.MOVE:
                 selectedBox.canvasPositionRatio = (selectedBox.pos().x() / self.width(), selectedBox.pos().y() / self.height())
 
-            #TODO - Remove Invalid Bounding boxes with Area Threshold or Some Rules
+            # TODO - Remove Invalid Bounding boxes with Area Threshold or Some Rules
             self.__correctionMode = CorrectionMode.OTHER
 
         if self.__ctrlFlag:
@@ -858,7 +859,7 @@ class Labeling(QMainWindow, MainUI):
         self.pbar.hide()
         frames = np.array(glob(os.path.join(destination_path, '*.jpg')))
         data_length = len(frames)
-        notUsingFrames = frames[random.sample(range(data_length), int(0.9 * data_length))]
+        notUsingFrames = frames[random.sample(range(data_length), int(0.95 * data_length))]
 
         for frame in notUsingFrames:
             os.remove(frame)
