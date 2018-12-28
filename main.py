@@ -1,10 +1,10 @@
 import random
 import time
 
-from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QPushButton, \
-    QFileDialog, QLabel, QRubberBand, QComboBox, QMenu, QShortcut, QMainWindow, QAction, QSizePolicy, QProgressBar
-from PyQt5.QtGui import QImage, QPixmap, QCursor, QColor, QPalette, QBrush, QPainter, QPen, QIcon, QKeySequence
-from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, QObject, pyqtSlot, QThread
+from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, \
+    QFileDialog, QLabel, QRubberBand, QComboBox, QMenu, QMainWindow, QAction, QProgressBar
+from PyQt5.QtGui import QImage, QPixmap, QCursor, QColor, QPalette, QBrush, QIcon
+from PyQt5.QtCore import QPoint, QRect, QSize, pyqtSignal, Qt, pyqtSlot
 import sys
 from utils import ImageContainer, xml_root, instance_to_xml, prediction, load_image, globWithTypes
 from lxml import etree
