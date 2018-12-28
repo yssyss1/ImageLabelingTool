@@ -1,3 +1,5 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = ''
 import random
 import time
 
@@ -56,6 +58,8 @@ class AppString(Enum):
 
 class Label(Enum):
     SHIP = 'Ship'
+    SPEEDBOAT = 'Speed boat'
+    SAILBOAT = 'Sail boat'
     BUOY = 'Buoy'
     OTHER = 'Other'
 
@@ -71,7 +75,7 @@ class BoundingBox(QRubberBand):
 
     def __init__(self, shape, parent, label):
         super().__init__(shape, parent)
-        self.pointCheckRange = 10
+        self.pointCheckRange = 3
         self.canvasPositionRatio = (0, 0)
         self.canvasBoxRatio = (0, 0)
         self.label = label
@@ -126,10 +130,15 @@ class Viewer(QLabel):
         self.__correctionMode = CorrectionMode.OTHER
         self.resizeMode = ResizeMode.OTHER
         self.label = Label.SHIP
-        self.colorTable = {Label.SHIP: Qt.blue, Label.BUOY: Qt.red, Label.OTHER: Qt.green}
+        self.colorTable = {Label.SHIP: Qt.blue,
+                           Label.SPEEDBOAT: Qt.yellow,
+                           Label.SAILBOAT: Qt.darkGray,
+                           Label.BUOY: Qt.red,
+                           Label.OTHER: Qt.green}
         self.__mouseLineVisible = True
         self.__InitializeMouseLine()
-        self.__ctrlFlag = False
+        self.__shiftFlag = False
+        self.__resized = False
 
     def initialize(self):
         for box in self.__boxes:
@@ -144,6 +153,7 @@ class Viewer(QLabel):
         self.__correctionMode = CorrectionMode.OTHER
         self.resizeMode = ResizeMode.OTHER
         self.label = Label.SHIP
+        self.__resized = False
 
     def autoLabeling(self, boundingBoxes):
         for box in self.__boxes:
@@ -154,10 +164,10 @@ class Viewer(QLabel):
 
         for idx, bbox in enumerate(boundingBoxes):
             x, y, w, h = bbox
-            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP)) # TODO - Multi classification Labeling
+            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, None))
             self.__boxes[idx].setGeometry(QRect(x, y, w, h))
             self.__boxes[idx].geometry()
-            self.__boxes[idx].setPalette(self.__boundingBoxColor())
+            self.__boxes[idx].setPalette(self.__boundingBoxColor(Label.SHIP)) # TODO - Multi classification Labeling
             self.__boxes[idx].show()
 
             self.__boxes[idx].canvasPositionRatio = \
@@ -168,12 +178,12 @@ class Viewer(QLabel):
         self.changeBoxNum.emit(len(self.__boxes))
 
     @property
-    def ctrlFlag(self):
-        return self.__ctrlFlag
+    def shiftFlag(self):
+        return self.__shiftFlag
 
-    @ctrlFlag.setter
-    def ctrlFlag(self, newFlag):
-        self.__ctrlFlag = newFlag
+    @shiftFlag.setter
+    def shiftFlag(self, newFlag):
+        self.__shiftFlag = newFlag
 
     @property
     def mouseLineVisible(self):
@@ -249,6 +259,12 @@ class Viewer(QLabel):
         if self.__mode == Mode.CORRECTION and self.__correctionMode == CorrectionMode.OTHER:
             self.__findResizingBox(QMouseEvent)
 
+        if self.__mode == Mode.LABELING and self.__resized:
+            if self.rect().contains(QMouseEvent.pos()):
+                self.mouseLineVisible = True
+                self.__setMouseLinePosition(QMouseEvent.pos())
+                self.__resized = False
+
         if self.__makeBoundingBox:
             clipCoord = self.__clipCoordinateInWidget(QMouseEvent)
             self.__boxes[0].setGeometry(QRect(self.origin, clipCoord).normalized())
@@ -297,8 +313,8 @@ class Viewer(QLabel):
             # TODO - Remove Invalid Bounding boxes with Area Threshold or Some Rules
             self.__correctionMode = CorrectionMode.OTHER
 
-        if self.__ctrlFlag:
-            self.__ctrlFlag = False
+        if self.__shiftFlag:
+            self.__shiftFlag = False
             self.mode = Mode.LABELING
             self.mouseLineVisible = True
 
@@ -311,6 +327,7 @@ class Viewer(QLabel):
                 box.resize(newSize.width() * box.canvasBoxRatio[0], newSize.height() * box.canvasBoxRatio[1])
                 box.move(newSize.width() * box.canvasPositionRatio[0], newSize.height() * box.canvasPositionRatio[1])
 
+            self.__resized = True
         super().resizeEvent(QResizeEvent)
 
     def leaveEvent(self, QEvent):
@@ -399,65 +416,104 @@ class Viewer(QLabel):
 
             if newW < 0 and newH < 0:
                 self.resizeMode = ResizeMode.BOTTOMRIGHT
+                newH = 0
+                newW = 0
+                newY = oldBottomRightY
+                newX = oldBottomRightX
             elif newW < 0:
                 self.resizeMode = ResizeMode.TOPRIGHT
+                newW = 0
+                newX = oldBottomRightX
             elif newH < 0:
                 self.resizeMode = ResizeMode.BOTTOMLEFT
+                newH = 0
+                newY = oldBottomRightY
         elif resizeMode == ResizeMode.TOP:
             newX, newY = oldTopLeftX, mousePos.y()
             newW, newH = oldWidth, oldBottomRightY - mousePos.y()
 
             if newH < 0:
                 self.resizeMode = ResizeMode.BOTTOM
+                newH = 0
+                newY = oldBottomRightY
         elif resizeMode == ResizeMode.TOPRIGHT:
             newX, newY = oldTopLeftX, mousePos.y()
             newW, newH = mousePos.x() - oldTopLeftX, oldBottomRightY - mousePos.y()
 
             if newW < 0 and newH < 0:
                 self.resizeMode = ResizeMode.BOTTOMLEFT
+                newW = 0
+                newH = 0
+                newX = oldTopLeftX
+                newY = oldBottomRightY
             elif newW < 0:
                 self.resizeMode = ResizeMode.TOPLEFT
+                newW = 0
+                newX = oldTopLeftX
             elif newH < 0:
                 self.resizeMode = ResizeMode.BOTTOMRIGHT
+                newH = 0
+                newY = oldBottomRightY
         elif resizeMode == ResizeMode.RIGHT:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = mousePos.x() - oldTopLeftX, oldHeight
 
             if newW < 0:
                 self.resizeMode = ResizeMode.LEFT
+                newW = 0
+                newX = oldTopLeftX
         elif resizeMode == ResizeMode.BOTTOMRIGHT:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = mousePos.x() - oldTopLeftX, mousePos.y() - oldTopLeftY
 
             if newW < 0 and newH < 0:
                 self.resizeMode = ResizeMode.TOPLEFT
+                newW = 0
+                newH = 0
+                newY = oldTopLeftY
+                newX = oldTopLeftX
             elif newW < 0:
                 self.resizeMode = ResizeMode.BOTTOMLEFT
+                newW = 0
+                newX = oldTopLeftX
             elif newH < 0:
                 self.resizeMode = ResizeMode.TOPRIGHT
-
+                newH = 0
+                newY = oldTopLeftY
         elif resizeMode == ResizeMode.BOTTOM:
             newX, newY = oldTopLeftX, oldTopLeftY
             newW, newH = oldWidth, mousePos.y() - oldTopLeftY
 
             if newH < 0:
                 self.resizeMode = ResizeMode.TOP
+                newH = 0
+                newY = oldTopLeftY
         elif resizeMode == ResizeMode.BOTTOMLEFT:
             newX, newY = mousePos.x(), oldTopLeftY
             newW, newH = oldBottomRightX - mousePos.x(), mousePos.y() - oldTopLeftY
 
             if newW < 0 and newH < 0:
                 self.resizeMode = ResizeMode.TOPRIGHT
+                newW = 0
+                newH = 0
+                newX = oldBottomRightX
+                newY = oldTopLeftY
             elif newW < 0:
                 self.resizeMode = ResizeMode.BOTTOMRIGHT
+                newW = 0
+                newX = oldBottomRightX
             elif newH < 0:
                 self.resizeMode = ResizeMode.TOPLEFT
+                newH = 0
+                newY = oldTopLeftY
         elif resizeMode == ResizeMode.LEFT:
             newX, newY = mousePos.x(), oldTopLeftY
             newW, newH = oldBottomRightX - mousePos.x(), oldHeight
 
             if newW < 0:
                 self.resizeMode = ResizeMode.RIGHT
+                newW = 0
+                newX = oldBottomRightX
 
         return (newX, newY, newW, newH)
 
@@ -624,7 +680,7 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
         Utils.changeCursor(Qt.ArrowCursor)
 
     def initialize(self):
@@ -664,7 +720,7 @@ class Labeling(QMainWindow, MainUI):
         elif self.viewer.correctionMode != CorrectionMode.OTHER:
             if QKeyEvent.key() == Qt.Key_Shift:
                 self.__changeModeLabel(Mode.LABELING)
-                self.viewer.ctrlFlag = True
+                self.viewer.shiftFlag = True
 
     @pyqtSlot(int)
     def changeBoxNum(self, num):
