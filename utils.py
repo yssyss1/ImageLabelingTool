@@ -26,7 +26,7 @@ class ImageContainer:
 
     @property
     def fileName(self):
-        return self.__filePath.split('/')[-1]
+        return self.__filePath.split('\\')[-1]
 
     @property
     def imageWidth(self):
@@ -343,5 +343,5 @@ def parse_annotation(ann_dir, img_dir, labels, data_name):
 
 
 if __name__ == '__main__':
-    dataset_check('./types/image', './types/annotation', ['Ship', 'Buoy', 'Other'], 'test')
+    dataset_check('./MVI_0801_VIS_OB/image', './MVI_0801_VIS_OB/annotation', ['Ship', 'Buoy', 'Other'], 'test')
     # globWithTypes('./types', ['png', 'jpg', 'jpeg'])
