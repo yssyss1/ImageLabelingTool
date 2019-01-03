@@ -165,6 +165,11 @@ class Viewer(QLabel):
 
         for idx, bbox in enumerate(boundingBoxes):
             x, y, w, h = bbox
+            x = max(0, min(x, self.width()))
+            y = max(0, min(y, self.height()))
+            w = max(0, min(w, self.width()-x))
+            h = max(0, min(h, self.width()-y))
+
             self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP))
             self.__boxes[idx].setGeometry(QRect(x, y, w, h))
             self.__boxes[idx].geometry()
@@ -409,7 +414,7 @@ class Viewer(QLabel):
         oldBottomRightX, oldBottomRightY = oldTopLeftX + box.width(), oldTopLeftY + box.height()
         oldWidth, oldHeight = box.width(), box.height()
 
-        mousePos = self.__clipCoordinateInWidget(mousePos, resize=True)
+        mousePos = self.__clipCoordinateInWidget(mousePos)
 
         if resizeMode == ResizeMode.TOPLEFT:
             newX, newY = mousePos.x(), mousePos.y()
@@ -554,12 +559,10 @@ class Viewer(QLabel):
             Utils.changeCursor(Qt.ArrowCursor)
             return ResizeMode.OTHER
 
-    def __clipCoordinateInWidget(self, QMouseEvent, resize=False):
+    def __clipCoordinateInWidget(self, QMouseEvent):
         clipCoord = QPoint()
-        maxWidth = self.width() if resize else self.width() - 1
-        maxHeight = self.height() if resize else self.height() - 1
-        clipCoord.setX(max(0, min(QMouseEvent.x(), maxWidth)))
-        clipCoord.setY(max(0, min(QMouseEvent.y(), maxHeight)))
+        clipCoord.setX(max(0, min(QMouseEvent.x(), self.width())))
+        clipCoord.setY(max(0, min(QMouseEvent.y(), self.height())))
 
         return clipCoord
 
