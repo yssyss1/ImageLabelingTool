@@ -686,7 +686,7 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
         Utils.changeCursor(Qt.ArrowCursor)
 
     def initialize(self):
