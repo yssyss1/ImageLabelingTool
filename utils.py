@@ -25,6 +25,7 @@ class ImageContainer:
 
     @property
     def fileName(self):
+        # Add '\\' as splitter for window directory path
         return self.__filePath.split('\\')[-1].split('/')[-1]
 
     @property
