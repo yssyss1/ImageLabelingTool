@@ -19,6 +19,7 @@ import shutil
 import threading
 import cv2
 import numpy as np
+import math
 
 
 class Mode(Enum):
@@ -280,8 +281,8 @@ class Viewer(QLabel):
 
             elif self.__correctionMode == CorrectionMode.MOVE:
                 nextCenterPosition = QMouseEvent.pos() - self.translateOffset
-                nextCenterPosition.setX(max(0, min(nextCenterPosition.x(), self.width() - selectedBox.width() - 1)))
-                nextCenterPosition.setY(max(0, min(nextCenterPosition.y(), self.height() - selectedBox.height() - 1)))
+                nextCenterPosition.setX(max(0, min(nextCenterPosition.x(), self.width() - selectedBox.width())))
+                nextCenterPosition.setY(max(0, min(nextCenterPosition.y(), self.height() - selectedBox.height())))
                 selectedBox.move(nextCenterPosition)
         super().mouseMoveEvent(QMouseEvent)
 
@@ -408,7 +409,7 @@ class Viewer(QLabel):
         oldBottomRightX, oldBottomRightY = oldTopLeftX + box.width(), oldTopLeftY + box.height()
         oldWidth, oldHeight = box.width(), box.height()
 
-        mousePos = self.__clipCoordinateInWidget(mousePos)
+        mousePos = self.__clipCoordinateInWidget(mousePos, resize=True)
 
         if resizeMode == ResizeMode.TOPLEFT:
             newX, newY = mousePos.x(), mousePos.y()
@@ -553,10 +554,12 @@ class Viewer(QLabel):
             Utils.changeCursor(Qt.ArrowCursor)
             return ResizeMode.OTHER
 
-    def __clipCoordinateInWidget(self, QMouseEvent):
+    def __clipCoordinateInWidget(self, QMouseEvent, resize=False):
         clipCoord = QPoint()
-        clipCoord.setX(max(0, min(QMouseEvent.x(), self.width()-1)))
-        clipCoord.setY(max(0, min(QMouseEvent.y(), self.height()-1)))
+        maxWidth = self.width() if resize else self.width() - 1
+        maxHeight = self.height() if resize else self.height() - 1
+        clipCoord.setX(max(0, min(QMouseEvent.x(), maxWidth)))
+        clipCoord.setY(max(0, min(QMouseEvent.y(), maxHeight)))
 
         return clipCoord
 
@@ -866,8 +869,18 @@ class Labeling(QMainWindow, MainUI):
             xmin, ymin, width, height, label = box
             positionRatio = (xmin/self.viewer.width(), ymin/self.viewer.height())
             scaleRatio = (width/self.viewer.width(), height/self.viewer.height())
-            instances.append({'bbox': [self.loadImage.imageWidth * positionRatio[0], self.loadImage.imageHeight * positionRatio[1],
-                                       self.loadImage.imageWidth * scaleRatio[0], self.loadImage.imageHeight * scaleRatio[1]],
+
+            bboxXmin = self.loadImage.imageWidth * positionRatio[0]
+            bboxYmin = self.loadImage.imageHeight * positionRatio[1]
+            bboxXmax = bboxXmin + self.loadImage.imageWidth * scaleRatio[0]
+            bboxYmax = bboxYmin + self.loadImage.imageWidth * scaleRatio[1]
+
+            bboxXmin = max(0, min(math.floor(bboxXmin), self.loadImage.imageWidth))
+            bboxYmin = max(0, min(math.floor(bboxYmin), self.loadImage.imageHeight))
+            bboxXmax = max(0, min(math.ceil(bboxXmax), self.loadImage.imageWidth))
+            bboxYmax = max(0, min(math.ceil(bboxYmax), self.loadImage.imageHeight))
+
+            instances.append({'bbox': [bboxXmin, bboxYmin, bboxXmax, bboxYmax],
                               'category_id': label.value})
 
         for instance in instances:

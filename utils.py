@@ -1,8 +1,7 @@
-from lxml import etree, objectify
+from lxml import objectify
 
 import cv2
 from tqdm import tqdm
-import os
 import numpy as np
 import xml.etree.ElementTree as ET
 import os
@@ -51,14 +50,14 @@ def xml_root(filename, height, width):
 
 def instance_to_xml(annotation):
     E = objectify.ElementMaker(annotate=False)
-    x_min, y_min, width, height = annotation["bbox"]
+    x_min, y_min, x_max, y_max = annotation["bbox"]
     return E.object(
             E.name(annotation["category_id"]),
             E.bndbox(
                 E.xmin(x_min),
                 E.ymin(y_min),
-                E.xmax(x_min+width),
-                E.ymax(y_min+height),
+                E.xmax(x_max),
+                E.ymax(y_max),
                 ),
             )
 
