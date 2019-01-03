@@ -342,5 +342,8 @@ def parse_annotation(ann_dir, img_dir, labels, data_name):
 
 
 if __name__ == '__main__':
-    dataset_check('./MVI_0801_VIS_OB/image', './MVI_0801_VIS_OB/annotation', ['Ship', 'Buoy', 'Other'], 'test')
+    dataset_check('./MVI_0788_VIS_OB/image',
+                  './MVI_0788_VIS_OB/annotation',
+                  ['Ship', 'Speed boat', 'Sail boat', 'Buoy', 'Other'],
+                  'test')
     # globWithTypes('./types', ['png', 'jpg', 'jpeg'])

@@ -686,7 +686,7 @@ class Labeling(QMainWindow, MainUI):
         self.setFocus()
         self.loadImage = None
         self.getMultipleInput = False
-        self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
+        # self.yolo = load_model('./yolov2_ship_model.h5', custom_objects={'tf': tf})
         Utils.changeCursor(Qt.ArrowCursor)
 
     def initialize(self):
@@ -876,12 +876,12 @@ class Labeling(QMainWindow, MainUI):
             bboxXmin = self.loadImage.imageWidth * positionRatio[0]
             bboxYmin = self.loadImage.imageHeight * positionRatio[1]
             bboxXmax = bboxXmin + self.loadImage.imageWidth * scaleRatio[0]
-            bboxYmax = bboxYmin + self.loadImage.imageWidth * scaleRatio[1]
+            bboxYmax = bboxYmin + self.loadImage.imageHeight * scaleRatio[1]
 
-            bboxXmin = max(0, min(math.floor(bboxXmin), self.loadImage.imageWidth))
-            bboxYmin = max(0, min(math.floor(bboxYmin), self.loadImage.imageHeight))
-            bboxXmax = max(0, min(math.ceil(bboxXmax), self.loadImage.imageWidth))
-            bboxYmax = max(0, min(math.ceil(bboxYmax), self.loadImage.imageHeight))
+            bboxXmin = max(0, min(math.floor(bboxXmin), self.loadImage.imageWidth-1))
+            bboxYmin = max(0, min(math.floor(bboxYmin), self.loadImage.imageHeight-1))
+            bboxXmax = max(0, min(math.ceil(bboxXmax), self.loadImage.imageWidth-1))
+            bboxYmax = max(0, min(math.ceil(bboxYmax), self.loadImage.imageHeight-1))
 
             instances.append({'bbox': [bboxXmin, bboxYmin, bboxXmax, bboxYmax],
                               'category_id': label.value})
