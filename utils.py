@@ -26,7 +26,7 @@ class ImageContainer:
 
     @property
     def fileName(self):
-        return self.__filePath.split('\\')[-1]
+        return self.__filePath.split('\\')[-1].split('/')[-1]
 
     @property
     def imageWidth(self):

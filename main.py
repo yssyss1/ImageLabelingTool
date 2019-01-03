@@ -164,7 +164,7 @@ class Viewer(QLabel):
 
         for idx, bbox in enumerate(boundingBoxes):
             x, y, w, h = bbox
-            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, None))
+            self.__boxes.append(BoundingBox(QRubberBand.Rectangle, self, Label.SHIP))
             self.__boxes[idx].setGeometry(QRect(x, y, w, h))
             self.__boxes[idx].geometry()
             self.__boxes[idx].setPalette(self.__boundingBoxColor(Label.SHIP)) # TODO - Multi classification Labeling
