@@ -8,6 +8,7 @@ import os
 from glob import glob
 from PIL import Image
 
+
 class ImageContainer:
     def __init__(self, image, filePath):
         self.__image = image
@@ -277,7 +278,7 @@ def dataset_check(image_dir, xml_dir, labels, name):
                         1e-3 * image.shape[0],
                         (0, 255, 0), 1)
 
-        cv2.imwrite('./dataset_check/{}.jpg'.format(idx), image[:, :, ::-1])
+        Image.fromarray(image).save('./dataset_check/{}.jpg'.format(idx))
 
     print('End check {} dataset!'.format(name))
 
@@ -344,4 +345,3 @@ if __name__ == '__main__':
                   './MVI_0788_VIS_OB/annotation',
                   ['Ship', 'Speed boat', 'Sail boat', 'Buoy', 'Other'],
                   'test')
-    # globWithTypes('./types', ['png', 'jpg', 'jpeg'])
