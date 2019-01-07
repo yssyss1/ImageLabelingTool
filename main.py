@@ -20,6 +20,7 @@ import threading
 import cv2
 import numpy as np
 import math
+from PIL import Image
 
 
 class Mode(Enum):
@@ -911,16 +912,17 @@ class Labeling(QMainWindow, MainUI):
         cnt = 0
         cap = cv2.VideoCapture(video_path)
         length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        data_length = int(0.05 * length)
+        using_idx = np.array(random.sample(range(length), data_length))
 
         while cap.isOpened():
             ret, frame = cap.read()
 
             if ret:
-                cv2.imwrite(
-                    os.path.join(destination_path, '{}_{}.jpg'.format(video_name, cnt)),
-                    frame)
+                if cnt in using_idx:
+                    Image.fromarray(frame[..., ::-1]).save(os.path.join(destination_path, '{}_{}.jpg'.format(video_name, cnt)))
                 cnt += 1
-                percent = (cnt + 1) * (100 / length)
+                percent = (cnt + 1) / length * 100
                 self.pbar.setValue(percent)
             else:
                 break
@@ -929,12 +931,6 @@ class Labeling(QMainWindow, MainUI):
 
         self.description.setText('')
         self.pbar.hide()
-        frames = np.array(glob(os.path.join(destination_path, '*.jpg')))
-        data_length = len(frames)
-        notUsingFrames = frames[random.sample(range(data_length), int(0.95 * data_length))]
-
-        for frame in notUsingFrames:
-            os.remove(frame)
 
         return destination_path
 
