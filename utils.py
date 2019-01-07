@@ -6,7 +6,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import os
 from glob import glob
-
+from PIL import Image
 
 class ImageContainer:
     def __init__(self, image, filePath):
@@ -141,10 +141,7 @@ def prediction(image,
 
 
 def load_image(image_path):
-    image = cv2.imread(image_path)
-    image = np.array(image[..., ::-1])
-
-    return image
+    return np.array(Image.open(image_path))
 
 
 def decode_netout(netout, shape_dims, anchors, nb_class, obj_threshold=0.3, nms_threshold=0.3):
